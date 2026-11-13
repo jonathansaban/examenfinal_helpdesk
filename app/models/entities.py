@@ -45,3 +45,17 @@ class User:
     id: int
     name: str
     role: Role
+
+
+@dataclass
+class ContactoAlterno:
+    """Persona de contacto del caso. No es un User del sistema."""
+
+    ticket_id: int
+    name: str
+    phone: str
+    relationship: str
+    reason: str
+    added_by: int
+    id: int | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now().astimezone())

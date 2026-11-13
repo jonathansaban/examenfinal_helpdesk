@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contactos alternos</title>
+  <style>
+    body { font-family: sans-serif; margin: 2rem auto; max-width: 40rem; color: #1a1a1a; }
+    h1 { font-size: 1.4rem; }
+    form, .who { display: grid; gap: 0.6rem; margin: 1rem 0; }
+    label { display: grid; gap: 0.2rem; font-size: 0.9rem; }
+    input, select, button { font: inherit; padding: 0.4rem; }
+    button { width: fit-content; }
+    .ok { color: #0b6b2a; }
+    .err { color: #9b1c1c; }
+    li { margin: 0.4rem 0; }
+  </style>
+</head>
+<body>
+  <h1>Ticket <span id="ticket-id"></span></h1>
+  <p id="ticket-title"></p>
+
+  <div class="who">
+    <label>Entrar como
+      <select id="actor">
+        <option value="1">Ana, solicitante</option>
+        <option value="2">Bruno, otro solicitante</option>
+        <option value="3">Luis, técnico</option>
+      </select>
+    </label>
+  </div>
+
+  <h2>Contactos alternos</h2>
+  <form id="form" hidden>
+    <label>Nombre <input name="name" required></label>
+    <label>Teléfono <input name="phone" required placeholder="5551-2040"></label>
+    <label>Relación
+      <select name="relationship">
+        <option>compañero</option>
+        <option>docente</option>
+        <option>encargado</option>
+        <option>otro</option>
+      </select>
+    </label>
+    <label>Motivo <input name="reason" required></label>
+    <button type="submit">Agregar</button>
+  </form>
+  <p id="message"></p>
+  <ul id="list"></ul>
+
+  <script>
+    const ticketId = location.pathname.split("/").filter(Boolean).pop();
+    document.getElementById("ticket-id").textContent = ticketId;
+    const actor = document.getElementById("actor");
+    const message = document.getElementById("message");
+    const list = document.getElementById("list");
+    const form = document.getElementById("form");
+    const title = document.getElementById("ticket-title");
+    actor.value = sessionStorage.getItem("actor") || "1";
+
+    function headers() {
+      return { "X-User-Id": actor.value, "Content-Type": "application/json" };
+    }
+
+    async function load() {
+      const ticketResponse = await fetch("/api/tickets/" + ticketId, { headers: headers() });
+      const ticketBody = await ticketResponse.json().catch(() => ({}));
+      const response = await fetch("/api/tickets/" + ticketId + "/alternate-contacts", { headers: headers() });
+      const body = await response.json().catch(() => ({}));
+      list.innerHTML = "";
+      if (!ticketResponse.ok || !response.ok) {
+        form.hidden = true;
+        title.textContent = "";
+        message.className = "err";
+        message.textContent = ticketBody.detail || body.detail || "No se pudo consultar el ticket";
+        return;
+      }
+      form.hidden = false;
+      title.textContent = ticketBody.title;
+      for (const contact of body) {
+        const item = document.createElement("li");
+        const when = new Date(contact.created_at).toLocaleString();
+        item.textContent = contact.name + " · " + contact.phone + " · " + contact.relationship + " · " + contact.reason + " · " + when;
+        list.appendChild(item);
+      }
+    }
+
+    actor.addEventListener("change", () => {
+      sessionStorage.setItem("actor", actor.value);
+      message.textContent = "";
+      load();
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = Object.fromEntries(new FormData(event.target));
+      const response = await fetch("/api/tickets/" + ticketId + "/alternate-contacts", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify(data),
+      });
+      const body = await response.json().catch(() => ({}));
+      message.className = response.ok ? "ok" : "err";
+      message.textContent = response.ok ? "Contacto agregado" : (body.detail || "No se pudo agregar");
+      if (response.ok) {
+        event.target.reset();
+        await load();
+      }
+    });
+
+    load();
+  </script>
+</body>
+</html>

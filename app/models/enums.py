@@ -10,3 +10,6 @@ class TicketStatus(str, Enum):
 class Role(StrEnum):
     REQUESTER = "requester"
     TECHNICIAN = "technician"
+
+
+RELACIONES = ("compañero", "docente", "encargado", "otro")
