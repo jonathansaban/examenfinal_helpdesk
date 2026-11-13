@@ -1,15 +1,26 @@
 ﻿from __future__ import annotations
 
-from sqlalchemy import String, Text, func, select
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, String, Text, event, func, select
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from app.domain.errors import TicketNotFoundError
-from app.models.entities import Ticket
+from app.models.entities import ContactoAlterno, Ticket
 from app.repositories.base import TicketRepository
 
 
 class Base(DeclarativeBase):
     pass
+
+
+@event.listens_for(Engine, "connect")
+def _activar_claves_foraneas(dbapi_connection, _connection_record) -> None:
+    """SQLite no aplica claves foráneas hasta que se piden. Solo afecta a esta conexión."""
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 class TicketORM(Base):
@@ -94,3 +105,59 @@ class SqlAlchemyTicketRepository(TicketRepository):
         """Reporte agregado: solo los estados presentes; {} si no hay tickets."""
         stmt = select(TicketORM.status, func.count()).group_by(TicketORM.status)
         return {status: total for status, total in self._session.execute(stmt).all()}
+
+
+class AlternateContactORM(Base):
+    __tablename__ = "alternate_contacts"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ticket_id: Mapped[int] = mapped_column(ForeignKey("tickets.id"))
+    name: Mapped[str] = mapped_column(String(80))
+    phone: Mapped[str] = mapped_column(String(20))
+    relationship: Mapped[str] = mapped_column(String(20))
+    reason: Mapped[str] = mapped_column(String(200))
+    added_by: Mapped[int] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+def _contact_to_domain(row: AlternateContactORM) -> ContactoAlterno:
+    return ContactoAlterno(
+        id=row.id,
+        ticket_id=row.ticket_id,
+        name=row.name,
+        phone=row.phone,
+        relationship=row.relationship,
+        reason=row.reason,
+        added_by=row.added_by,
+        created_at=row.created_at,
+    )
+
+
+class SqlAlchemyAlternateContactRepository:
+    """Alta y consulta de contactos alternos. El id lo asigna la base."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def add(self, contact: ContactoAlterno) -> ContactoAlterno:
+        row = AlternateContactORM(
+            ticket_id=contact.ticket_id,
+            name=contact.name,
+            phone=contact.phone,
+            relationship=contact.relationship,
+            reason=contact.reason,
+            added_by=contact.added_by,
+            created_at=contact.created_at,
+        )
+        self._session.add(row)
+        self._session.flush()
+        contact.id = row.id
+        return contact
+
+    def list_by_ticket(self, ticket_id: int) -> list[ContactoAlterno]:
+        stmt = (
+            select(AlternateContactORM)
+            .where(AlternateContactORM.ticket_id == ticket_id)
+            .order_by(AlternateContactORM.id)
+        )
+        return [_contact_to_domain(row) for row in self._session.scalars(stmt)]
